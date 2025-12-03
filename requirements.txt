@@ -1,7 +1,8 @@
 flask
 yt-dlp
-openai-whisper
+whisper
+torch
 gTTS
 requests
 ffmpeg-python
-torch
+numpy
