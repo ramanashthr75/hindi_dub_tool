@@ -1,9 +1,8 @@
 services:
   - type: web
-    name: hindi_dub_tool
+    name: hindi-dub-tool
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python3 main.py"
+    startCommand: "gunicorn main:app"
     plan: free
-    envVars: []
-
+    autoDeploy: true
