@@ -6,5 +6,7 @@ services:
     startCommand: "gunicorn main:app"
     plan: free
     branch: backend
+    rootDir: backend
     autoDeploy: true
+
 
