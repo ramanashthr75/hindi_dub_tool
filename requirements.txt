@@ -3,8 +3,8 @@ gunicorn
 yt-dlp
 whisper
 torch
-gTTS
-requests
 ffmpeg-python
-numpy
+gTTS
 googletrans==4.0.0-rc1
+requests
+numpy

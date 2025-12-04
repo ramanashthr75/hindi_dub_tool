@@ -1,60 +1,79 @@
 from flask import Flask, request, jsonify
-import os
 import yt_dlp
 import whisper
-import requests
+import ffmpeg
+from googletrans import Translator
 from gtts import gTTS
-import subprocess
+import os
 import uuid
 
 app = Flask(__name__)
 
-model = whisper.load_model("base")
+# Load Whisper model
+model = whisper.load_model("small")
 
-def download_youtube_audio(url):
-    id = str(uuid.uuid4())
-    audio_file = f"audio_{id}.mp3"
-    ydl_opts = {'format': 'bestaudio/best', 'outtmpl': audio_file}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    return audio_file
 
-@app.route("/dub", methods=["POST"])
-def dub_video():
-    data = request.json
-    yt_url = data.get("youtube_url")
+@app.route("/convert", methods=["POST"])
+def convert_video():
+    try:
+        data = request.json
+        youtube_url = data.get("url")
+        target_lang = data.get("target", "hi")
 
-    audio_file = download_youtube_audio(yt_url)
+        if not youtube_url:
+            return jsonify({"status": "error", "message": "URL missing"})
 
-    result = model.transcribe(audio_file)
-    english_text = result["text"]
+        job_id = str(uuid.uuid4())
+        input_video = f"video_{job_id}.mp4"
+        input_audio = f"audio_{job_id}.mp3"
+        output_audio = f"new_audio_{job_id}.mp3"
+        final_video = f"dubbed_{job_id}.mp4"
 
-    translate_res = requests.post(
-        "https://libretranslate.de/translate",
-        data={"q": english_text, "source": "en", "target": "hi", "format": "text"}
-    ).json()
-    hindi_text = translate_res["translatedText"]
+        # STEP 1 — Download video
+        ydl_opts = {"outtmpl": input_video}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
 
-    hindi_audio = f"hindi_{uuid.uuid4()}.mp3"
-    gTTS(hindi_text, lang="hi").save(hindi_audio)
+        # STEP 2 — Extract audio
+        ffmpeg.input(input_video).output(input_audio).run(overwrite_output=True)
 
-    video_file = f"video_{uuid.uuid4()}.mp4"
-    ydl_opts = {'format': 'mp4', 'outtmpl': video_file}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([yt_url])
+        # STEP 3 — Speech-to-text (English)
+        result = model.transcribe(input_audio)
+        english_text = result["text"]
 
-    output_video = f"output_{uuid.uuid4()}.mp4"
-    cmd = f"ffmpeg -i {video_file} -i {hindi_audio} -c:v copy -c:a aac -shortest {output_video} -y"
-    subprocess.call(cmd, shell=True)
+        # STEP 4 — Translate text
+        translator = Translator()
+        translated = translator.translate(english_text, dest=target_lang).text
 
-    return jsonify({
-        "status": "success",
-        "output_url": request.host_url + output_video
-    })
+        # STEP 5 — Text-to-speech
+        tts = gTTS(text=translated, lang=target_lang)
+        tts.save(output_audio)
 
-@app.route("/<path:filename>")
-def serve_file(filename):
-    return app.send_static_file(filename)
+        # STEP 6 — Merge new audio with video
+        ffmpeg.input(input_video).input(output_audio).output(
+            final_video, vcodec="copy", acodec="aac"
+        ).run(overwrite_output=True)
+
+        # STEP 7 — Store in output folder
+        if not os.path.exists("output"):
+            os.makedirs("output")
+
+        final_path = f"output/{final_video}"
+        os.rename(final_video, final_path)
+
+        return jsonify({
+            "status": "success",
+            "download_url": f"https://YOUR_RENDER_DOMAIN/output/{final_video}"
+        })
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/")
+def home():
+    return "Hindi Dub API is running!"
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=5000)
